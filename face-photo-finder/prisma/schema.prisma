@@ -1,0 +1,143 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Admin {
+  id        String   @id @default(cuid())
+  username  String   @unique
+  password  String   // bcrypt hashed
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("admins")
+}
+
+model PhotoSource {
+  id                String   @id @default(cuid())
+  driveLink         String   @unique
+  driveFolderId     String
+  folderName        String
+  totalPhotos       Int      @default(0)
+  indexedPhotos     Int      @default(0)
+  indexingStatus    String   @default("pending") // pending, indexing, completed, failed
+  indexingProgress  Float    @default(0)
+  lastIndexedAt     DateTime?
+  errorMessage      String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  photos Photo[]
+  indexJobs IndexJob[]
+
+  @@map("photo_sources")
+}
+
+model Photo {
+  id                String   @id @default(cuid())
+  sourceId          String
+  googleDriveFileId String
+  fileName          String
+  thumbnailUrl      String
+  imageUrl          String
+  fileSize          Int
+  mimeType          String
+  duplicateHash     String?  // hash to detect duplicates
+  isBlurry          Boolean  @default(false)
+  blurScore         Float?   // 0-1, higher = blurrier
+  processedAt       DateTime @default(now())
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  source PhotoSource @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  faces  Face[]
+  downloads Download[]
+
+  @@index([sourceId])
+  @@index([duplicateHash])
+  @@map("photos")
+}
+
+model Face {
+  id              String   @id @default(cuid())
+  photoId         String
+  faceIndex       Int      // which face in the photo (0, 1, 2, ...)
+  embedding       String   // Vector/JSON stored as string (base64 or JSON array)
+  confidence      Float    // face detection confidence (0-1)
+  boundingBox     String   // JSON: {x, y, width, height}
+  landmarks       String?  // JSON: facial landmarks
+  descriptors     String?  // Additional ML descriptors
+  createdAt       DateTime @default(now())
+
+  photo Photo @relation(fields: [photoId], references: [id], onDelete: Cascade)
+
+  @@index([photoId])
+  @@map("faces")
+}
+
+model SearchResult {
+  id              String   @id @default(cuid())
+  userEmbedding   String   // base64/JSON
+  photoId         String
+  faceId          String
+  matchScore      Float    // 0-1, similarity score
+  createdAt       DateTime @default(now())
+
+  @@index([createdAt])
+  @@map("search_results")
+}
+
+model Download {
+  id        String   @id @default(cuid())
+  photoId   String
+  sessionId String   // to track which user session
+  fileName  String
+  format    String   @default("single") // single, zip
+  createdAt DateTime @default(now())
+
+  photo Photo @relation(fields: [photoId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId])
+  @@index([photoId])
+  @@map("downloads")
+}
+
+model IndexJob {
+  id              String   @id @default(cuid())
+  sourceId        String
+  status          String   @default("pending") // pending, processing, completed, failed
+  totalPhotos     Int      @default(0)
+  processedPhotos Int      @default(0)
+  progress        Float    @default(0)
+  errorMessage    String?
+  startedAt       DateTime?
+  completedAt     DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  source PhotoSource @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+
+  @@index([sourceId])
+  @@index([status])
+  @@map("index_jobs")
+}
+
+model SystemConfig {
+  id                    String   @id @default(cuid())
+  similarityThreshold   Float    @default(0.6) // 0-1, for face matching
+  blurThreshold         Float    @default(0.5) // 0-1, for detecting blurry images
+  maxPhotosPerSearch    Int      @default(100) // limit results
+  indexingBatchSize     Int      @default(10)
+  googleClientId        String?
+  googleClientSecret    String?
+  updatedAt             DateTime @updatedAt
+
+  @@map("system_config")
+}
